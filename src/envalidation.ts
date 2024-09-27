@@ -30,6 +30,18 @@ export const envalidation = {
   array: <T extends ZodTypeAny>(schema: T) => z.array(schema),
   enum: <T extends [string, ...string[]]>(values: T) => z.enum(values),
   // Add other schema types as needed
+
+  preprocess: <T extends ZodTypeAny>(
+    preprocessor: (arg: unknown) => unknown,
+    schema: T
+  ) => z.preprocess(preprocessor, schema),
+  arrayFromString: <T extends ZodTypeAny>(schema: T) =>
+    z.preprocess((val) => {
+      if (typeof val === "string") {
+        return val.split(",").map((item) => item.trim());
+      }
+      return val;
+    }, z.array(schema)),
 };
 
-export type TypeOf<T extends ZodTypeAny> = T["_type"];
+export type TypeOf<T extends ZodTypeAny> = z.infer<T>;

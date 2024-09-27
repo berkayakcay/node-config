@@ -1,6 +1,4 @@
-// src/parser.ts
-
-import { z, ZodTypeAny } from "zod";
+import { z, ZodError, ZodTypeAny } from "zod";
 
 function getEnvVarName(schema: ZodTypeAny): string | undefined {
   const env = (schema._def as any).env;
@@ -43,47 +41,18 @@ function traverseSchema(
   }
 }
 
-export function loadConfig<T>(schema: z.ZodType<T>): T {
+export function loadConfig<T extends z.ZodTypeAny>(schema: T): z.infer<T> {
   const envMappings = traverseSchema(schema);
 
   const configObject: any = {};
 
-  for (const [path, schema] of envMappings) {
-    const envVarName = getEnvVarName(schema);
+  for (const [path, subSchema] of envMappings) {
+    const envVarName = getEnvVarName(subSchema);
     if (!envVarName) continue;
 
     const envValue = process.env[envVarName];
 
-    let parsedValue: any;
-
-    if (envValue === undefined) {
-      // Check for default value
-      if (schema.isOptional()) {
-        continue; // Skip if optional
-      }
-
-      try {
-        parsedValue = (schema as any)._def.defaultValue?.();
-        if (parsedValue === undefined) {
-          throw new Error(
-            `Environment variable ${envVarName} is required but not set.`
-          );
-        }
-      } catch {
-        throw new Error(
-          `Environment variable ${envVarName} is required but not set.`
-        );
-      }
-    } else {
-      // Parse the value according to the schema type
-      if (schema instanceof z.ZodNumber) {
-        parsedValue = Number(envValue);
-      } else if (schema instanceof z.ZodBoolean) {
-        parsedValue = envValue === "true";
-      } else {
-        parsedValue = envValue;
-      }
-    }
+    let parsedValue: any = envValue === undefined ? undefined : envValue;
 
     // Set the parsed value in the config object
     let current = configObject;
@@ -100,25 +69,32 @@ export function loadConfig<T>(schema: z.ZodType<T>): T {
 
   // Validate and parse the configuration
   try {
-    const parsedConfig = schema.parse(configObject);
+    const parsedConfig = schema.parse(configObject) as z.infer<T>;
     return parsedConfig;
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      // Format the validation errors
+  } catch (error: any) {
+    if (error instanceof ZodError) {
       const errorMessages = error.errors
         .map((issue) => {
           const path = issue.path.join(".");
-          return `- ${path}: ${issue.message}`;
+          let message = issue.message;
+
+          switch (issue.code) {
+            case "invalid_type":
+              message = `Expected ${issue.expected}, received ${issue.received}`;
+              break;
+            case "invalid_string":
+              if (issue.validation === "url") {
+                message = "Must be a valid URL";
+              }
+              break;
+          }
+
+          return `- ${path}: ${message}`;
         })
         .join("\n");
 
-      // Throw a new error with the formatted messages
-      console.log(error.errors);
-      throw new Error(
-        `Configuration validation failed: ${errorMessages}\n${error.message}`
-      );
+      throw new Error(`Configuration validation failed:\n${errorMessages}`);
     } else {
-      // Re-throw other unexpected errors
       throw error;
     }
   }
