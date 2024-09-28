@@ -1,6 +1,6 @@
-export { loadConfig } from "./parser";
-export { envalidation } from "./envalidation";
-export type { TypeOf } from "./envalidation";
-import * as zod from "zod";
-
+export {
+  environmentVariable,
+  createValidatedConfig,
+  InferConfig,
+} from "./config";
 export * from "zod";

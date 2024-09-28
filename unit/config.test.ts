@@ -1,54 +1,132 @@
-import { envalidation, loadConfig, TypeOf } from "../src";
-
-const TestConfigSchema = envalidation.object({
-  // stringVar: envalidation.string().env("TEST_STRING_VAR"),
-  // numberVar: envalidation.number().env("TEST_NUMBER_VAR"),
-  // booleanVar: envalidation.boolean().env("TEST_BOOLEAN_VAR"),
-  // optionalVar: envalidation.string().optional().env("TEST_OPTIONAL_VAR"),
-  // defaultVar: envalidation
-  //   .string()
-  //   .default("defaultValue")
-  //   .env("TEST_DEFAULT_VAR"),
-  // enumVar: envalidation
-  //   .enum(["development", "production"])
-  //   .env("TEST_ENUM_VAR"),
-  // nestedObject: envalidation.object({
-  //   nestedVar: envalidation.number().env("TEST_NESTED_VAR"),
-  // }),
-  arrayVar: envalidation
-    .string().array()
-    .env("TEST_ARRAY_VAR"),
-});
-
-type TestConfig = TypeOf<typeof TestConfigSchema>;
+import { z, ZodError } from "zod";
+import { environmentVariable, createValidatedConfig } from "../src/config";
 
 beforeEach(() => {
-  // Clear all environment variables that start with 'TEST_'
-  for (const key of Object.keys(process.env)) {
-    if (key.startsWith("TEST_")) {
-      delete process.env[key];
-    }
-  }
+  process.env = {};
 });
 
-test("Should load configuration successfully with valid environment variables", () => {
-  // process.env.TEST_STRING_VAR = "testString";
-  // process.env.TEST_NUMBER_VAR = "123";
-  // process.env.TEST_BOOLEAN_VAR = "true";
-  // process.env.TEST_ENUM_VAR = "development";
-  process.env.TEST_ARRAY_VAR = "value1,value2,value3";
-  // process.env.TEST_NESTED_VAR = "42";
+describe("environmentVariable function", () => {
+  it("should return the value from process.env if it exists", () => {
+    process.env["TEST_KEY"] = "localhost";
+    const schema = z.string();
+    const result = environmentVariable("TEST_KEY", schema, "default").parse(
+      undefined
+    );
+    expect(result).toBe("localhost");
+  });
 
-  const config: TestConfig = loadConfig(TestConfigSchema);
+  it("should return the default value if process.env is undefined", () => {
+    const schema = z.string();
+    const result = environmentVariable(
+      "NON_EXISTENT_KEY",
+      schema,
+      "default"
+    ).parse(undefined);
+    expect(result).toBe("default");
+  });
 
-  console.log("CONFIG:", config);
+  it("should cast string value to number when using ZodNumber", () => {
+    process.env["PORT"] = "3000";
+    const schema = z.number();
+    const result = environmentVariable("PORT", schema, 5432).parse(undefined);
+    expect(result).toBe(3000);
+  });
 
-  // expect(config.stringVar).toBe("testString");
-  // expect(config.numberVar).toBe(123);
-  // expect(config.booleanVar).toBe(true);
-  // expect(config.optionalVar).toBeUndefined();
-  // expect(config.defaultVar).toBe("defaultValue");
-  // expect(config.enumVar).toBe("development");
-  expect(config.arrayVar).toEqual(["value1", "value2", "value3"]);
-  // expect(config.nestedObject.nestedVar).toBe(42);
+  it("should return default number when process.env is invalid for ZodNumber", () => {
+    process.env["PORT"] = "invalid";
+    const schema = z.number();
+    const result = environmentVariable("PORT", schema, 5432).parse(undefined);
+    expect(result).toBe(5432);
+  });
+
+  it("should cast string 'true' to boolean when using ZodBoolean", () => {
+    process.env["IS_ENABLED"] = "true";
+    const schema = z.boolean();
+    const result = environmentVariable("IS_ENABLED", schema, false).parse(
+      undefined
+    );
+    expect(result).toBe(true);
+  });
+
+  it("should return the default value for ZodArray when env is a comma-separated string", () => {
+    process.env["ARRAY_VALUES"] = "a,b,c";
+    const schema = z.array(z.string());
+    const result = environmentVariable("ARRAY_VALUES", schema, []).parse(
+      undefined
+    );
+    expect(result).toEqual(["a", "b", "c"]);
+  });
+
+  it("should return default value for invalid ZodArray", () => {
+    process.env["ARRAY_VALUES"] = "";
+    const schema = z.array(z.string());
+    const result = environmentVariable("ARRAY_VALUES", schema, [
+      "default",
+    ]).parse(undefined);
+    expect(result).toEqual(["default"]);
+  });
+
+  it("should correctly handle ZodEnum", () => {
+    process.env["ENVIRONMENT"] = "development";
+    const schema = z.enum(["development", "production"]);
+    const result = environmentVariable(
+      "ENVIRONMENT",
+      schema,
+      "production"
+    ).parse(undefined);
+    expect(result).toBe("development");
+  });
+
+  it("should return default for invalid ZodEnum", () => {
+    process.env["ENVIRONMENT"] = "invalid";
+    const schema = z.enum(["development", "production"]);
+    const result = environmentVariable(
+      "ENVIRONMENT",
+      schema,
+      "production"
+    ).parse(undefined);
+    expect(result).toBe("production");
+  });
+});
+
+describe("createValidatedConfig function", () => {
+  const configSchema = z.object({
+    host: z.string(),
+    port: z.number(),
+    username: z.string().min(1),
+  });
+
+  it("should validate and return the correct config", () => {
+    const configMap = {
+      host: "localhost",
+      port: 5432,
+      username: "admin",
+    };
+
+    const result = createValidatedConfig(configSchema, configMap);
+    expect(result).toEqual(configMap);
+  });
+
+  it("should throw validation error for missing required fields", () => {
+    const configMap = {
+      host: "localhost",
+      port: 5432,
+    };
+
+    expect(() => createValidatedConfig(configSchema, configMap)).toThrow(
+      ZodError
+    );
+  });
+
+  it("should format and log validation errors", () => {
+    const configMap = {
+      host: "localhost",
+      port: 5432,
+      username: "",
+    };
+
+    expect(() =>
+      createValidatedConfig(configSchema, configMap)
+    ).toThrow();
+  });
 });

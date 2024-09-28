@@ -13,5 +13,5 @@
     "declaration": true,
     "types": ["node", "jest"]
   },
-  "include": ["src/**/*", "tests/**/*"]
+  "include": ["src/**/*", "tests/**/*", "unit/config.test.ts"]
 }
